@@ -1,0 +1,297 @@
+initialize() {
+	
+	// This version uses treesequencing to remove m1 mutations...
+	initializeTreeSeq(checkCoalescence=F);
+	
+	initializeMutationRate(0);
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	initializeMutationType("m2", 1.0, "f", 0.0);  // introduced mutation
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, 21999999);
+	
+	// These are fixed
+	defineConstant("simID", getSeed());
+	
+	// Set our constants if we are in slimgui
+	if(exists("slimgui")){
+		defineConstant("selection_coef",0.1);
+		defineConstant("rho",0.002);
+		defineConstant("popN",10000);
+		defineConstant("out_ID",simID);
+		defineConstant("daughter_pop_size",10000);
+		defineConstant("mig_rate",0.01);
+		defineConstant("final_freq",0.8);
+		defineConstant("evolving_generations",100);
+		defineConstant("sweep_locus",10999999);
+	}
+	
+	// Now we have a variable recombination rate over 100-fold
+	initializeRecombinationRate(c(seq(1,10,1.8)*1e-9,seq(2.8,10,1.8)*1e-8),c(seq(1999999,19999999,2e6),21999999));
+
+}
+
+1{
+	
+	// Make our founders
+	sim.addSubpop("p1", popN);
+	
+	// Set our timestamps
+	sim.setValue("burned_gen",0);
+	sim.setValue("established_gen",0);
+	sim.setValue("daughter_gen",0);
+}
+
+100 late() {
+	
+	// Only run if we aren't burned
+	
+	//	if (sim.treeSeqCoalesced())
+	//	{
+	
+	// introduce the sweep mutation
+	target = sample(p1.genomes, 1);
+	target.addNewDrawnMutation(m2, sweep_locus);
+	
+	// Save the timestamp
+	sim.setValue("burned_gen",sim.generation);
+	
+	// save the state of the simulation
+	sim.treeSeqOutput("slim_" + simID + "_burn.trees");
+}
+
+//	}
+
+
+
+
+101: late() {
+	
+	// Only run if we are not yet established but are burned
+	if(sim.getValue("burned_gen") > 0){
+		if(sim.getValue("established_gen") == 0){
+			
+			// Let the mutation get established
+			mut = sim.mutationsOfType(m2);
+			
+			if(sim.generation % 10 == 0){
+				catn("Freq = " + asString(sim.mutationFrequencies(p1,mut))
+					);
+			}
+			
+			// Check whether we have lost the mutation or not	
+			if (size(mut) == 1)
+			{
+				if (sim.mutationFrequencies(p1, mut) > 0.05)
+				{
+					cat(simID + ": ESTABLISHED AT GEN " + sim.generation + " – CONVERTING TO BENEFICIAL\n");
+					mut.setSelectionCoeff(selection_coef);
+					sim.setValue("established_gen",sim.generation);
+					sim.deregisterScriptBlock(self);
+					
+					// Save the state
+					sim.treeSeqOutput("slim_" + simID + "_established.trees");
+				
+				}
+			}
+			else
+			{
+				cat(simID + ": LOST BEFORE ESTABLISHMENT – RESTARTING\n");
+				// go back to generation burn_gen
+				sim.readFromPopulationFile("slim_" + simID + "_burn.trees");
+				
+				// start a newly seeded run
+				setSeed(rdunif(1, 0, asInteger(2^62) - 1));
+				
+				//			// re-introduce the sweep mutation
+				//			target = sample(p1.genomes, 1);
+				//			target.addNewDrawnMutation(m2, 10000);
+			}
+		}
+	}
+}
+101:	late() {
+	
+	// If our mutation has established, seed daughters
+	if(sim.getValue("established_gen") != 0 & sim.getValue("daughter_gen") == 0){
+		
+		// Now make the new populations
+		new_pops = c("p2","p3","p4","p5");
+		for(new_pop in new_pops){
+			sim.addSubpopSplit(new_pop,daughter_pop_size,p1);
+		}
+		
+		// Check the frequencies to make sure we have m2 in all
+		new_pops = c(p2,p3,p4,p5);
+		selected_mut = sim.mutationsOfType(m2);
+		mut_counts = 0;
+		for(new_pop in new_pops){
+			mut_freq = sim.mutationFrequencies(new_pop,selected_mut);
+			mut_counts = mut_counts + asInteger(ceil(mut_freq));
+		}
+		
+		// Set migration rates
+		for(new_pop in new_pops){
+			p1.setMigrationRates(new_pop,mig_rate/4);
+			new_pop.setMigrationRates(p1,mig_rate);
+		}
+		
+		// Draw subpops again if we have to
+		if(mut_counts != length(new_pops)){
+			cat(simID + ": Failed to inherit haplotype, restart\n");
+			
+			// go back to generation 1000
+			sim.readFromPopulationFile("slim_" + simID + "_established.trees");
+			
+			// start a newly seeded run
+			setSeed(rdunif(1, 0, asInteger(2^62) - 1));
+		
+		} else {
+			cat(simID + ": Successfully inherited at generation " + sim.generation + "\n");
+			
+			// Set daughter_gen
+			sim.setValue("daughter_gen",sim.generation);
+			
+			// Do a dump
+			sim.treeSeqOutput("slim_" + simID + "_daughters.trees");
+			
+			// Deregister the block
+			sim.deregisterScriptBlock(self);
+		
+		}
+	
+	}
+}
+/////////////////////////////////////////////////////////////////////////////
+// Set fitness up for p1
+fitness(m2,p1) {      // make m2 mutations deleterious in the founder
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		return (1.0 - selection_coef);
+	} else {
+		return (1.0 + selection_coef);
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Set fitness up for daughters
+fitness(m2,p2) {      // make m2 mutations deleterious in the founder
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		return (1.0 + selection_coef);
+	}
+}
+fitness(m2,p3) {      // make m2 mutations deleterious in the founder
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		return (1.0 + selection_coef);
+	}
+}
+fitness(m2,p4) {      // make m2 mutations deleterious in the founder
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		return (1.0 + selection_coef);
+	}
+}
+fitness(m2,p5) {      // make m2 mutations deleterious in the founder
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		return (1.0 + selection_coef);
+	}
+}
+/////////////////////////////////////////////////////////////////////////////
+
+101: late() {
+	// If our daughters are founded
+	if(sim.getValue("daughter_gen") != 0){
+		new_pops = c(p2,p3,p4,p5);
+		
+		// First check we have our mutations at all...
+		if(size(sim.mutationsOfType(m2)) == 0){
+			// Go back to successful founding, we lost the mutation somewhere
+			cat(simID + ": Mutation lost in all daughters, resetting\n");
+			sim.readFromPopulationFile("slim_" + simID + "_daughters.trees");
+			
+			// Set tags again
+			c(p2,p3,p4,p5).tag = 0;
+			
+			// start a newly seeded run
+			setSeed(rdunif(1, 0, asInteger(2^62) - 1));
+		} else {
+			
+			mut = sim.mutationsOfType(m2);
+			
+			// Reset our tags if we need to
+			c(p2,p3,p4,p5).tag=0;
+			
+			// Loop over pops 
+			for(pop in new_pops){
+				
+				// Get the frequency
+				mut_freq = sim.mutationFrequencies(pop,mut);
+				
+				// Check if lost
+				if(mut_freq == 0){
+					
+					// Set our tag to show we've fixed here
+					pop.tag = 2;
+				}
+			}
+			
+			// Either restart simulation or end it if necessary...
+			if(any(c(p2,p3,p4,p5).tag == 2)){
+				// Go back to successful founding, we lost the mutation somewhere
+				cat(simID + ": Mutation lost in one of daughters, resetting\n");
+				sim.readFromPopulationFile("slim_" + simID + "_daughters.trees");
+				
+				// Set tags again
+				c(p2,p3,p4,p5).tag = 0;
+				
+				// start a newly seeded run
+				setSeed(rdunif(1, 0, asInteger(2^62) - 1));
+				
+				// End our simulation if we are all fixed
+				//			} else if(sum(c(p2.tag,p3.tag,p4.tag,p5.tag)) == 4){
+			} else if(sim.generation == (sim.getValue("daughter_gen") + evolving_generations)){
+				//				catn("All daughters fixed at generation " + sim.generation);
+				catn(evolving_generations + " generations of selection has passed: " + sim.generation);
+				
+				// Output the final frequencies
+				mut = sim.mutationsOfType(m2);
+				pops = c(p1,p2,p3,p4,p5);
+				pop_labs = c("p1","p2","p3","p4","p5");
+				for(pop in 0:4){
+					catn(asString(pop_labs[pop]) + " Final Freq = " + asString(sim.mutationFrequencies(pops[pop],mut)));
+				}
+				
+				// Output the finished model
+				sim.treeSeqOutput("slim_" + simID + "_finished.trees");
+				
+				// End
+				sim.simulationFinished();
+			}
+		
+		}
+	}
+}
+
+
+1:100000 late() {
+	// End our simulation if we are out of time...
+	
+	if(sim.getValue("daughter_gen") > 0 & sim.generation == sim.getValue("daughter_gen") + 2000){
+		catn("Target frequency was not reached");
+		
+		// Output the final frequencies
+		mut = sim.mutationsOfType(m2);
+		pops = c(p1,p2,p3,p4,p5);
+		pop_labs = c("p1","p2","p3","p4","p5");
+		for(pop in 0:4){
+			catn(asString(pop_labs[pop]) + " Final Freq = " + asString(sim.mutationFrequencies(pops[pop],mut)));
+		}
+		
+		// Output the finished model
+		sim.treeSeqOutput("slim_" + simID + "_finished.trees");
+		
+		sim.simulationFinished();
+	}
+}

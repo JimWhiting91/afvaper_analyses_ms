@@ -1,11 +1,11 @@
 # Analysis of SLiM simulations for AF-vapeR simulations
 rm(list=ls())
-lib <- c("cowplot","data.table","ggplot2","dplyr","viridis")
+lib <- c("pbmcapply","cowplot","data.table","ggplot2","dplyr","viridis")
 sapply(lib,library,character.only=T)
 devtools::load_all("~/Exeter/afvaper/")
 
 # Get our results
-sim_results <- "21,08,18_Rerunning_full_parallel_with_200_evolving_gens"
+sim_results <- "22,04,20_Rerunning_full_parallel_with_new_v2_null"
 metadata <- read.table("data/sim_parameter_metadata_v3.txt")
 colnames(metadata) <- c("selection","pop2","migration")
 
@@ -222,6 +222,10 @@ eigen_fpr_fnr <- function(input_dir,window_size,eigenvec=1,variable_recomb=FALSE
   tmp_inputs <- list.files(input_dir)
   tmp_inputs <- grep("EIGEN",tmp_inputs,value=T)
   tmp_inputs <- grep(paste0("wind",window_size,".EIGEN"),tmp_inputs,value=T)
+  
+  if(!variable_recomb){
+    iterations = 1:length(tmp_inputs)
+  }
   
   # Set alphas
   alphas <- c(0.95,0.99,0.999)
@@ -533,8 +537,12 @@ fetch_log_AF <- function(input_dir){
     tmp_in <- read.table(paste0(input_dir,"/",log_files[i]),fill=T)
     # Fetch the final freqs from these ugly files
     to_keep <- grep("p1",tmp_in[,1])
-    freqs <- tmp_in[to_keep:(to_keep+10),]
-    AF_mat[i,] <- as.numeric(freqs[seq(2,10,2),1])
+    if(length(to_keep) > 0){
+      freqs <- tmp_in[to_keep:(to_keep+10),]
+      AF_mat[i,] <- as.numeric(freqs[seq(2,10,2),1])
+    } else {
+      AF_mat[i,] <- NA
+    }
   }
   
   # Average across columns
@@ -547,10 +555,12 @@ fetch_log_AF <- function(input_dir){
 # We want to summarise false positive rate and false negative rate for eigen analyses first
 for(i in 1:3){
   eigen_snp_window <- eigen_snps[i]
+  print(paste0("STARTING SNP WINDOW SIZE:",eigen_snp_window))
   if(!(file.exists(paste0("outputs/slim/",sim_results,"_all_eigen_window",eigen_snp_window,".rds")))){
-    all_fpr_fnr <- mclapply(sim_perms,function(sim){
-      tmp_dir <- paste0("outputs/slim/",sim_results,"_",sim,"/final_results")
-      eigen_fpr_fnr(tmp_dir,eigen_snp_window,1)
+    all_fpr_fnr <- pbmclapply(sim_perms,function(sim){
+      # tmp_dir <- paste0("outputs/slim/",sim_results,"_",sim,"/final_results")
+      tmp_dir <- paste0("/Volumes/jimwhiting_external/afvaper_sims/",sim_results,"_",sim,"/final_results")
+      eigen_fpr_fnr(input_dir = tmp_dir,window_size = eigen_snp_window,eigenvec = 1)
     },mc.cores=6)
     saveRDS(all_fpr_fnr,
             paste0("outputs/slim/",sim_results,"_all_eigen_window",eigen_snp_window,".rds"))
@@ -599,13 +609,15 @@ ggplot(all_fpr_fnr,aes(x=rate))+
 ################################################################
 # We want to summarise false positive rate and false negative rate for Fst next
 if(!(file.exists(paste0("outputs/slim/",sim_results,"_all_fst_results.rds")))){
-  all_fpr_fnr_fst <- mclapply(sim_perms,function(sim){
-    tmp_dir <- paste0("outputs/slim/",sim_results,"_",sim,"/final_results")
+  all_fpr_fnr_fst <- pbmclapply(sim_perms,function(sim){
+    # tmp_dir <- paste0("outputs/slim/",sim_results,"_",sim,"/final_results")
+    tmp_dir <- paste0("/Volumes/jimwhiting_external/afvaper_sims/",sim_results,"_",sim,"/final_results")
     fst_fpr_fnr(tmp_dir)
   },mc.cores=6)
   saveRDS(all_fpr_fnr_fst,
           paste0("outputs/slim/",sim_results,"_all_fst_results.rds"))
 }
+# all_paramater_fst_res <- readRDS(paste0("outputs/slim/",sim_results,"_all_fst_results.rds"))
 all_paramater_fst_res <- readRDS(paste0("outputs/slim/",sim_results,"_all_fst_results.rds"))
 
 # Merge to a comparable data.frame
@@ -696,7 +708,7 @@ param_plots <- lapply(parameters,function(param){
     geom_linerange(aes(ymin = mean_rate-se, ymax = mean_rate+se),position=position_dodge(width = 0.5),show.legend = F)+
     facet_grid(type~alpha,scales="free_y")+
     labs(y="Error Rate",x=parameter_labs[param],colour="Window Size/Overlap",shape="Analysis")+
-  ylim(0,1)
+    ylim(0,1)
   
 })
 
@@ -707,11 +719,15 @@ legend <- get_legend(
 )
 pdf("figs/FigureSX_simulation_effects_fprfnr.pdf",width=8,height=8)
 plot_grid(
-plot_grid(param_plots[[1]] + theme(legend.position = "none"),
-          param_plots[[2]] + theme(legend.position = "none"),
-          param_plots[[3]] + theme(legend.position = "none"),labels="AUTO",label_size = 32,ncol=1,align='v',axis="tblr",hjust = 0.1),
-legend,ncol=2,rel_widths = c(3,1))
+  plot_grid(param_plots[[1]] + theme(legend.position = "none"),
+            param_plots[[2]] + theme(legend.position = "none"),
+            param_plots[[3]] + theme(legend.position = "none"),labels="AUTO",label_size = 32,ncol=1,align='v',axis="tblr",hjust = 0.1),
+  legend,ncol=2,rel_widths = c(3,1))
 dev.off()
+
+# Save these to a suppp table...
+write.table(plot_rates,"tables/TableSX_afvaper_simulation_error_rates.tsv",
+            sep="\t",quote=F,row.names = F)
 
 #### Plot FNR heatmap for each analysis subset ####
 analyses <- unique(plot_rates$`Window Size/Overlap`)
@@ -791,14 +807,14 @@ for(analysis in unique(plot_rates$`Window Size/Overlap`)){
 
 # Fetch max FNR for eigen=50 under weak selection
 plot_rates[plot_rates$type == "FNR" &
-                 plot_rates$selection == 0.01 &
-                 plot_rates$`Window Size/Overlap` == "50" &
-                 plot_rates$alpha == 0.950,"rate"]
+             plot_rates$selection == 0.01 &
+             plot_rates$`Window Size/Overlap` == "50" &
+             plot_rates$alpha == 0.950,"rate"]
 
 plot_rates[plot_rates$type == "FNR" &
-                 plot_rates$selection == 0.01 &
-                 plot_rates$`Window Size/Overlap` == "4" &
-                 plot_rates$alpha == 0.950,"rate"]
+             plot_rates$selection == 0.01 &
+             plot_rates$`Window Size/Overlap` == "4" &
+             plot_rates$alpha == 0.950,"rate"]
 
 plot_rates[plot_rates$type == "FNR" &
              plot_rates$selection == 0.01 &
@@ -807,8 +823,10 @@ plot_rates[plot_rates$type == "FNR" &
 
 ################################################################
 #### Read in logs for AFs ####
-AF_list <- mclapply(sim_perms,function(iter){
-  AF_mat <- data.frame(fetch_log_AF(paste0("outputs/slim/",sim_results,"_",iter)))
+AF_list <- pbmclapply(sim_perms,function(iter){
+  print(iter)
+  # AF_mat <- data.frame(fetch_log_AF(paste0("outputs/slim/",sim_results,"_",iter)))
+  AF_mat <- data.frame(fetch_log_AF(paste0("/Volumes/jimwhiting_external/afvaper_sims/",sim_results,"_",iter)))
   
   # Merge this with information about the metadata
   AF_mat$selection <- metadata[iter,1]
@@ -830,9 +848,9 @@ AF_dd$AFD_var <- apply(AF_dd[,paste0("p",2:5,"_AFD")],1,var)
 AF_dd$AFD_min <- apply(AF_dd[,paste0("p",2:5,"_AFD")],1,min)
 
 # Summarise within treatments...
-AF_dd_treat <- data.frame(AF_dd %>% group_by(selection,migration,pop2) %>% summarise(mean_AFD=mean(AFD_mean),
-                                                           var_AFD=mean(AFD_var),
-                                                           min_AFD=mean(AFD_min)))
+AF_dd_treat <- data.frame(AF_dd %>% group_by(selection,migration,pop2) %>% summarise(mean_AFD=mean(AFD_mean,na.rm=T),
+                                                                                     var_AFD=mean(AFD_var,na.rm=T),
+                                                                                     min_AFD=mean(AFD_min,na.rm=T)))
 
 # Heatmap of AF
 AF_dd_treat$selection_lab <- paste0("s = ",AF_dd_treat$selection)
@@ -898,14 +916,16 @@ null_fig
 dev.off()
 
 #### Two Parallel Results #####
-sim_results2 <- "21,08,20,Rerunning_two_parallel_with_200_evolving_gens"
+sim_results2 <- "22,04,20_Rerunning_two_parallel_with_new_v2_null"
 # We want to summarise false positive rate and false negative rate for eigen analyses first
 for(i in 1:3){
   eigen_snp_window <- eigen_snps[i]
+  print(paste0("STARTING TWO PARALLEL FOR SNP SIZE:",eigen_snp_window))
   if(!(file.exists(paste0("outputs/slim/",sim_results2,"_all_eigen_window",eigen_snp_window,".rds")))){
-    all_fpr_fnr <- mclapply(sim_perms,function(sim){
-      tmp_dir <- paste0("outputs/slim/",sim_results2,"_",sim,"/final_results")
-      eigen_fpr_fnr(tmp_dir,eigen_snp_window,1)
+    all_fpr_fnr <- pbmclapply(sim_perms,function(sim){
+      # tmp_dir <- paste0("outputs/slim/",sim_results2,"_",sim,"/final_results")
+      tmp_dir <- paste0("/Volumes/jimwhiting_external/afvaper_sims/",sim_results2,"_",sim,"/final_results")
+      eigen_fpr_fnr(tmp_dir,eigen_snp_window,2)
     },mc.cores=6)
     saveRDS(all_fpr_fnr,
             paste0("outputs/slim/",sim_results2,"_all_eigen_window",eigen_snp_window,".rds"))
@@ -954,8 +974,9 @@ ggplot(all_fpr_fnr,aes(x=rate))+
 ################################################################
 # We want to summarise false positive rate and false negative rate for Fst next
 if(!(file.exists(paste0("outputs/slim/",sim_results2,"_all_fst_results.rds")))){
-  all_fpr_fnr_fst <- mclapply(sim_perms,function(sim){
-    tmp_dir <- paste0("outputs/slim/",sim_results2,"_",sim,"/final_results")
+  all_fpr_fnr_fst <- pbmclapply(sim_perms,function(sim){
+    # tmp_dir <- paste0("outputs/slim/",sim_results2,"_",sim,"/final_results")
+    tmp_dir <- paste0("/Volumes/jimwhiting_external/afvaper_sims/",sim_results2,"_",sim,"/final_results")
     fst_fpr_fnr(tmp_dir)
   },mc.cores=6)
   saveRDS(all_fpr_fnr_fst,

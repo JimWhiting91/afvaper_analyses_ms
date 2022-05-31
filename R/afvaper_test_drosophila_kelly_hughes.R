@@ -10,7 +10,7 @@ devtools::load_all("~/Exeter/afvaper/")
 drosophila_test <- "data/kelly_hughes_supp_data.xlsx"
 CORES <- 6
 permutations <- 10000
-wind_sizes <- c(25,50,100,200)
+wind_sizes <- c(50)
 
 # Fetch SNPs
 snps_input <- data.table(na.omit(readxl::read_xlsx(drosophila_test,skip = 1)))

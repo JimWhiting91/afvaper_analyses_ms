@@ -5,7 +5,7 @@ devtools::load_all("~/Exeter/afvaper/")
 n_cores = 6
 
 # Window size
-window_snps = 25
+window_snps = 50
 
 # Prepare original results... ---------------------------------------------
 original_results <- "data/kelly_hughes_supp_data.xlsx"
@@ -111,8 +111,6 @@ window_info$window_id <- names(all_eigen_res)
 # Plot
 eig1_fig <- afvaper::eigenval_plot(all_eigen_res,null_vectors = all_null_AFV,plot.pvalues = T)[[1]]
 
-# Histogram of pvalues
-hist(-log10(drosophila_pvals$Eigenvalue_1))
 
 # Fetch significant windows...
 afvaper_signif <- data.frame(window_id = signif_eigen_windows(all_eigen_res,cutoffs = null_cutoffs[,1])[[1]])
@@ -191,45 +189,6 @@ LRT_eig1_overlap <- ggplot(drosophila_pvals,aes(y=-log10(Eigenvalue_1),x=as.inte
                                "<0.001" = "gold2"))+
   labs(y=expression(-log[10](p)),x="Chromosome",colour="")
 
-# # How many of these overlap with UNIQUE LRT1 SNPs... -----------------
-# signif_snp_overlap <- rbindlist(pbmclapply(1:nrow(significant_snps_LRT_unique),function(snp){
-#   
-#   tmp <- window_info[window_info$chr == significant_snps_LRT_unique$seqnames[snp] &
-#                        as.integer(window_info$start) <= significant_snps_LRT$snp[snp] &
-#                        as.integer(window_info$end) >= significant_snps_LRT$snp[snp],]
-#   data.frame(chr=significant_snps_LRT$chr[snp],
-#              pos=significant_snps_LRT$snp[snp],
-#              snp = paste0(significant_snps_LRT$chr[snp],":",significant_snps_LRT$snp[snp]),
-#              afvaper_window = paste0(tmp$chr,":",tmp$start,"-",tmp$end),
-#              is_overlap = ifelse(paste0(tmp$chr,":",tmp$start,"-",tmp$end) %in% afvaper_signif$window_id,"Overlapping","Not Overlapping"))
-# },mc.cores=n_cores))
-# signif_snp_overlap$plot_y <- ifelse(signif_snp_overlap$is_overlap == "Overlapping",4.2,4)
-# 
-# # How many windows have hit LRT SNPs?
-# table(signif_snp_overlap$is_overlap)/sum(table(signif_snp_overlap$is_overlap))
-# 
-# # Fetch the pvals and plot again overlapped with significant LRT snps
-# drosophila_pvals <- data.frame(afvaper:::eigen_pvals(all_eigen_res,all_null_AFV))
-# drosophila_pvals <- cbind(drosophila_pvals,afvaper:::window2pos_df(rownames(drosophila_pvals)))
-# ggplot(drosophila_pvals,aes(y=-log10(Eigenvalue_1),x=as.integer(start)))+
-#   geom_step()+
-#   facet_grid(.~chr, scales = "free", space='free',switch="x")+
-#   geom_point(data=signif_snp_overlap,aes(y=plot_y,x=pos,colour=is_overlap))+
-#   theme_minimal()+
-#   theme(axis.text=element_text(size=16),
-#         axis.title = element_text(size=18),
-#         title = element_text(size=20),
-#         axis.text.x = element_blank(),
-#         axis.ticks.x = element_blank(),
-#         panel.spacing.x=unit(0.1, "lines"),
-#         strip.text = element_text(size=14),
-#         panel.grid.major.x = element_blank(),
-#         panel.grid.minor.x = element_blank())+
-#   scale_colour_manual(values=c("Not Overlapping"="gray50",
-#                                "Overlapping" = "red2"))+
-#   labs(y=expression(Eig~1~-log[10](p)),x="Chromosome",colour="")
-
-
 
 # How many windows overlap with significant CMH SNPs ----------------------
 signif_snp_overlap_CMH <- rbindlist(pbmclapply(1:nrow(significant_snps_CMH),function(snp){
@@ -299,186 +258,3 @@ plot_grid(plot_grid(plotlist = signif_venns,ncol=3,labels=c("A","B","C"),label_s
           align = "v",axis = "tblr")
 dev.off()
 
-# # Replace windows by SNPs that intersect the two tests...
-# afvaper_signif_window_snps <- afvaper_signif$window_id
-# for(wind in afvaper_signif_window_snps){
-#   if(wind %in% signif_snp_overlap$afvaper_window){
-#     afvaper_signif_window_snps <- afvaper_signif_window_snps[afvaper_signif_window_snps != wind]
-#     afvaper_signif_window_snps <- c(afvaper_signif_window_snps,signif_snp_overlap[signif_snp_overlap$afvaper_window == wind,snp])
-#   } 
-#   if (wind %in% signif_snp_overlap_CMH$afvaper_window){
-#     afvaper_signif_window_snps <- afvaper_signif_window_snps[afvaper_signif_window_snps != wind]
-#     afvaper_signif_window_snps <- c(afvaper_signif_window_snps,signif_snp_overlap_CMH[signif_snp_overlap_CMH$afvaper_window == wind,snp])
-#   }
-# }
-afvaper_signif_window_snps <- unique(afvaper_signif_window_snps)
-
-# Plot Venn...
-venn_list <- list(LRT_snps,CMH_snps,afvaper_signif_window_snps)
-names(venn_list) <- c("LRT","CMH","AF-vapeR")
-ggvenn(venn_list)
-
-# How does the overlapping of windows vs parallel SNPs change by l --------
-# Compare to window size
-signif_snp_overlap$window_id <- signif_snp_overlap$afvaper_window
-signif_snp_overlap <- merge(signif_snp_overlap,window_info[,c("window_id","wind_size")],by="window_id")
-ggplot(signif_snp_overlap,aes(x=is_overlap,y=wind_size))+
-  geom_violin(draw_quantiles = c(0.5))
-
-# Compare to LD - Clear effect here...
-original_res_winds_linkage$window_id <- paste0(original_res_winds_linkage$chr,":",original_res_winds_linkage$start,"-",original_res_winds_linkage$end)
-signif_snp_overlap <- merge(signif_snp_overlap,original_res_winds_linkage[,c("LD","window_id"),with=F],by='window_id')
-ggplot(signif_snp_overlap,aes(x=is_overlap,y=LD))+
-  geom_violin(draw_quantiles = c(0.5))
-
-# Compare to the LRT - Similar but marginal loss of signal...
-signif_snp_overlap[,median(LRT),by=is_overlap]
-ggplot(signif_snp_overlap,aes(x=is_overlap,y=log10(LRT)))+
-  geom_violin(draw_quantiles = c(0.5))
-
-# Compare eig1 pvals to LD ------------------------------------------------
-drosophila_pvals$LD <- original_res_winds_linkage$LD
-cor.test(-log10(drosophila_pvals$Eigenvalue_1),drosophila_pvals$LD,method = "kendall")
-ggplot(drosophila_pvals,aes(LD,-log10(Eigenvalue_1)))+
-  geom_point()+
-  stat_density2d_filled(alpha=0.5)
-
-# Estimate linkage vs eig1 for null AFV... --------------------------------
-null_windows <- afvaper::window2pos_df(names(all_null_AFV))
-null_windows$start <- as.integer(null_windows$start)
-null_windows$end <- as.integer(null_windows$end)
-null_windows$window_id <- names(all_null_AFV)
-
-# Loop over and calculate linkage...
-null_windows_linkage <- rbindlist(pbmclapply(1:nrow(null_windows),function(x){
-  
-  tmp <- original_res[original_res$chr == null_windows$chr[x] &
-                        original_res$pos >= as.integer(null_windows$start[x]) &
-                        original_res$pos <= as.integer(null_windows$end[x]),grep("pR",colnames(original_res),value=T),with=F]
-  cor_res <- mean(cor(t(tmp))^2)
-  return(data.frame(window_id=null_windows$window_id[x],
-                    LD=cor_res))
-},mc.cores=n_cores))
-
-# Merge with eigenvalues and plot...
-null_eigen_res <- lapply(all_null_AFV,eigen_analyse_vectors)
-null_eigenvals <- lapply(null_eigen_res,'[[',1)
-null_empP <- afvaper:::eigen_pvals(null_eigen_res,all_null_AFV)
-
-# Add them on
-null_windows_linkage$eig1 <- sapply(null_eigenvals,function(x) x[1])
-null_windows_linkage$eig1_p <- null_empP[,1]
-
-# Compare correlation
-cor.test(null_windows_linkage$LD,-log10(null_windows_linkage$eig1_p),method = "kendall")
-
-# Plot
-ggplot(null_windows_linkage,aes(LD,-log10(eig1_p)))+
-  geom_point()+
-  stat_density2d_filled(alpha=0.5)
-
-
-# Split null windows into deciles on the basis of LD and re-estimate pvals --------
-LD_deciles <- c(0,quantile(null_windows_linkage$LD,probs = seq(0.1,1,0.1)))
-LD_based_null_cutoffs <- lapply(2:length(LD_deciles),function(x){
-  
-  # Get the windows for this decile
-  windows_to_keep <- null_windows_linkage[null_windows_linkage$LD <= LD_deciles[x] &
-                                            null_windows_linkage$LD > LD_deciles[x-1],window_id]
-  
-  # Get null cutoffs for this window
-  cutoff_tmp <- find_null_cutoff(all_null_AFV[windows_to_keep],cutoffs = c(0.95,0.99,0.999))
-  return(list(cutoffs = cutoff_tmp,
-              null_AFV = all_null_AFV[windows_to_keep]))
-})
-names(LD_based_null_cutoffs) <- seq(0.1,1,0.1)
-
-# Inspect the eig1 cutoffs based on different deciles of linkage...
-decile_eig1_cutoffs <- lapply(LD_based_null_cutoffs,'[[',1)
-to_plot <- data.frame(quantile = names(LD_based_null_cutoffs),
-                      eig1_cutoff = sapply(decile_eig1_cutoffs,function(x) x[1,2]))
-ggplot(to_plot,aes(quantile,eig1_cutoff))+
-  geom_point()
-
-# Assign each of the windows to the quantile it is represents in the null...
-original_res_winds_linkage$null_LD_quantile <- sapply(original_res_winds_linkage$LD,function(LD) names(LD_based_null_cutoffs)[max(which(LD_deciles < LD))])
-original_res_winds_linkage$window_id <- paste0(original_res_winds_linkage$chr,":",original_res_winds_linkage$start,"-",original_res_winds_linkage$end)
-
-# Calculate new empirical pvalues on the basis of LD-decile null distirbutions. Note that these will have a reduced maximum to a power of 10 because each one only has 1,000 null windows...
-LD_decile_empPvals <- rbindlist(lapply(names(LD_based_null_cutoffs),function(quant){
-  
-  # Find the windows...
-  windows_to_test <- original_res_winds_linkage[original_res_winds_linkage$null_LD_quantile == quant,window_id]
-  
-  # Test the windows...
-  test_window_pvals <- data.table(afvaper:::eigen_pvals(all_eigen_res[windows_to_test],
-                                                        LD_based_null_cutoffs[[as.character(quant)]]$null_AFV))
-  
-  # Add back in linkage info and window ids...
-  test_window_pvals <- cbind(test_window_pvals,
-                             original_res_winds_linkage[original_res_winds_linkage$null_LD_quantile == quant,c("LD","window_id"),with=F])
-  
-  return(test_window_pvals)
-}))
-
-# Plot these new results...
-LD_decile_empPvals <- cbind(LD_decile_empPvals,afvaper:::window2pos_df(LD_decile_empPvals$window_id))
-ggplot(LD_decile_empPvals,aes(as.integer(start),-log10(Eigenvalue_1)))+
-  geom_point()+
-  facet_grid(.~chr, scales = "free", space='free',switch="x")+
-  theme_minimal()+
-  theme(axis.text=element_text(size=16),
-        axis.title = element_text(size=18),
-        title = element_text(size=20),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing.x=unit(0.1, "lines"),
-        strip.text = element_text(size=14),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank())+
-  labs(y="Eig1 (-log10(p))",x="Chromosome")
-
-# Take significant windows from these and compare against the LRT-1 SNPs...
-LD_based_signif_windows <- LD_decile_empPvals[-log10(LD_decile_empPvals$Eigenvalue_1) > 2,window_id]
-signif_snp_overlap_LD <- rbindlist(pbmclapply(1:nrow(significant_snps_LRT),function(snp){
-  
-  tmp <- window_info[window_info$chr == significant_snps_LRT$chr[snp] &
-                       as.integer(window_info$start) <= significant_snps_LRT$snp[snp] &
-                       as.integer(window_info$end) >= significant_snps_LRT$snp[snp],]
-  data.frame(chr=significant_snps_LRT$chr[snp],
-             pos=significant_snps_LRT$snp[snp],
-             snp = paste0(significant_snps_LRT$chr[snp],":",significant_snps_LRT$snp[snp]),
-             afvaper_window = paste0(tmp$chr,":",tmp$start,"-",tmp$end),
-             is_overlap = ifelse(paste0(tmp$chr,":",tmp$start,"-",tmp$end) %in% LD_based_signif_windows,"Overlapping","Not Overlapping"),
-             LRT = significant_snps_LRT$LRT[snp])
-},mc.cores=n_cores))
-signif_snp_overlap_LD$plot_y <- ifelse(signif_snp_overlap_LD$is_overlap == "Overlapping",4.2,4)
-
-# How many windows have hit LRT SNPs?
-table(signif_snp_overlap_LD$is_overlap)/sum(table(signif_snp_overlap_LD$is_overlap))
-
-# Plot again...
-ggplot(LD_decile_empPvals,aes(as.integer(start),-log10(Eigenvalue_1)))+
-  geom_point()+
-  facet_grid(.~chr, scales = "free", space='free',switch="x")+
-  theme_minimal()+
-  theme(axis.text=element_text(size=16),
-        axis.title = element_text(size=18),
-        title = element_text(size=20),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing.x=unit(0.1, "lines"),
-        strip.text = element_text(size=14),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank())+
-  labs(y="Eig1 (-log10(p))",x="Chromosome")+
-  geom_point(data=signif_snp_overlap_LD,aes(y=plot_y,x=pos,colour=is_overlap))+
-  scale_colour_manual(values=c("Not Overlapping"="gray50","Overlapping" = "red2"))                                                                                                         
-
-# What are we missing...
-signif_snp_overlap_LD$window_id <- signif_snp_overlap_LD$afvaper_window
-signif_snp_overlap_LD <- merge(signif_snp_overlap_LD,original_res_winds_linkage[,c("LD","window_id"),with=F],by='window_id')
-ggplot(signif_snp_overlap_LD,aes(x=is_overlap,y=LD))+
-  geom_violin(draw_quantiles = c(0.5))
-ggplot(signif_snp_overlap_LD,aes(x=is_overlap,y=LRT))+
-  geom_violin(draw_quantiles = c(0.5))

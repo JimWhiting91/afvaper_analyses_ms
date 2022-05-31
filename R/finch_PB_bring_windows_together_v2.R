@@ -277,40 +277,6 @@ write.table(eig1_supp,
             "tables/TableSX_PB_finch_Eig1_outliers.txt",
             row.names = F,quote = F,sep="\t")
 
-# # Eig2
-# eig2_supp <- unique(data.frame(rbindlist(lapply(rownames(overlapping_outliers[[2]][overlapping_outliers[[2]]$n.overlaps == 3,]),function(window_id){
-#   
-#   # Isolate the biggest window size
-#   biggest_window <- tail(strsplit(overlapping_outliers[[2]][window_id,"names"],",")[[1]],1)
-#   window_indices <- 1:4
-#   names(window_indices) <- window_snps
-#   
-#   # Fetch the relevant windows from the window SNP res
-#   window_res_tmp <- window_outliers[[window_indices[biggest_window]]][[5]]
-#   window_res_tmp <- window_res_tmp[window_res_tmp$window_id %in% subset_by_regions(window_res_tmp$window_id,window_id),]
-#   
-#   # Add in the window size
-#   window_res_tmp$window_size_snps <- biggest_window
-#   return(window_res_tmp)
-# }))))
-# eig2_supp <- eig2_supp[order(-eig2_supp$eigenvalue),]
-# eig2_supp$total_variance <- round((eig2_supp$eigenvalue/6)*100,2)
-# eig2_supp$eigenvalue <- round(eig2_supp$eigenvalue,3)
-# 
-# # Fetch all of the pvals
-# for(i in 1:nrow(eig2_supp)){
-#   window_tmp <- eig2_supp$window_id[i]
-#   snp_tmp <- eig2_supp$window_size_snps[i]
-#   res_tmp <- which(window_snps == as.integer(snp_tmp))
-#   eig2_supp$empPvalue[i] <- window_outliers[[res_tmp]][[6]][window_tmp,1]
-# }
-# 
-# eig2_supp <- eig2_supp[,c("window_id","eigenvector","eigenvalue","total_variance","empPvalue","parallel_lineages","parallel_pops","antiparallel_pops","window_size_snps")]
-# 
-# # Write these
-# write.table(eig2_supp,
-#             "tables/TableSX_PB_finch_eig2_outliers.txt",
-#             row.names = F,quote = F,sep="\t")
 
 ################################################################################  
 ##### Plot the ALX1 locus for 200 SNP windows... #####
